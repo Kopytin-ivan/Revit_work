@@ -3800,331 +3800,6 @@ namespace Palmsi.RevitTools
 
             return ids;
         }
-        // --- OPA: корневой Id витражной стены для элемента границы помещения ---
-        static int GetCurtainRootIdForElement(Element el)
-        {
-            if (el == null) return 0;
-
-            try
-            {
-                if (el is Wall w)
-                {
-                    if (w.WallType != null && w.WallType.Kind == WallKind.Curtain)
-                        return w.Id.IntegerValue;
-                    return 0;
-                }
-
-                if (el is FamilyInstance fi)
-                {
-                    Wall hostWall = null;
-
-                    if (fi.Host is Wall hw)
-                        hostWall = hw;
-                    else if (fi.SuperComponent is FamilyInstance sfi && sfi.Host is Wall shw)
-                        hostWall = shw;
-
-                    if (hostWall != null &&
-                        hostWall.WallType != null &&
-                        hostWall.WallType.Kind == WallKind.Curtain)
-                        return hostWall.Id.IntegerValue;
-                }
-            }
-            catch { }
-
-            return 0;
-        }
-
-        // --- OPA: читаем boundary от Revit (полная петля как видит Revit) + отдельно сегменты НЕ-витража для графа ---
-        static bool TryGetRoomBoundaryDataView(
-            Room room,
-            Document doc,
-            SpatialElementBoundaryOptions bopts,
-            Transform T_model_to_view,
-            out List<List<XYZ>> loopsAllViewFt,
-            out List<Seg2> segsNonCurtainViewFt,
-            out HashSet<int> curtainIdsHint)
-        {
-            loopsAllViewFt = new List<List<XYZ>>();
-            segsNonCurtainViewFt = new List<Seg2>();
-            curtainIdsHint = new HashSet<int>();
-
-            if (room == null || doc == null || bopts == null || T_model_to_view == null)
-                return false;
-
-            IList<IList<BoundarySegment>> loops = null;
-            try { loops = room.GetBoundarySegments(bopts); }
-            catch { loops = null; }
-
-            if (loops == null || loops.Count == 0)
-                return false;
-
-            var keys = new HashSet<string>();
-
-            foreach (var loop in loops)
-            {
-                if (loop == null || loop.Count == 0) continue;
-
-                var ptsLoop = new List<XYZ>(128);
-                XYZ lastP = null;
-
-                foreach (var bs in loop)
-                {
-                    if (bs == null) continue;
-
-                    Element boundEl = null;
-                    try
-                    {
-                        if (bs.ElementId != null && bs.ElementId != ElementId.InvalidElementId)
-                            boundEl = doc.GetElement(bs.ElementId);
-                    }
-                    catch { boundEl = null; }
-
-                    bool isCurtainBound = IsCurtainElement(boundEl);
-                    if (isCurtainBound)
-                    {
-                        int rid = GetCurtainRootIdForElement(boundEl);
-                        if (rid != 0) curtainIdsHint.Add(rid);
-                    }
-
-                    Curve c = null;
-                    try { c = bs.GetCurve(); } catch { c = null; }
-                    if (c == null) continue;
-
-                    // Тесселируем кривую boundary в точки (в порядке обхода)
-                    IList<XYZ> tess = null;
-                    if (c is Line ln)
-                    {
-                        tess = new List<XYZ> { ln.GetEndPoint(0), ln.GetEndPoint(1) };
-                    }
-                    else
-                    {
-                        try { tess = c.Tessellate(); }
-                        catch { tess = null; }
-                    }
-
-                    if (tess == null || tess.Count < 2) continue;
-
-                    // 1) Полная петля "как дал Revit" (для fallback/не-витражных)
-                    for (int i = 0; i < tess.Count; i++)
-                    {
-                        var pv = T_model_to_view.OfPoint(tess[i]);
-                        var p2 = SnapXY(new XYZ(pv.X, pv.Y, 0));
-
-                        if (lastP != null && KeyForPoint(lastP) == KeyForPoint(p2))
-                            continue;
-
-                        ptsLoop.Add(p2);
-                        lastP = p2;
-                    }
-
-                    // 2) Для графа: берём только НЕ-витражные сегменты boundary
-                    if (!isCurtainBound)
-                    {
-                        for (int i = 0; i + 1 < tess.Count; i++)
-                        {
-                            var a = T_model_to_view.OfPoint(tess[i]);
-                            var b = T_model_to_view.OfPoint(tess[i + 1]);
-                            TryAddSeg2D(keys, segsNonCurtainViewFt, a, b, false, 0);
-                        }
-                    }
-                }
-
-                // убрать замыкание, если последняя == первая
-                if (ptsLoop.Count >= 2 && KeyForPoint(ptsLoop[0]) == KeyForPoint(ptsLoop[ptsLoop.Count - 1]))
-                    ptsLoop.RemoveAt(ptsLoop.Count - 1);
-
-                if (ptsLoop.Count >= 3)
-                    loopsAllViewFt.Add(ptsLoop);
-            }
-
-            return loopsAllViewFt.Count > 0 || segsNonCurtainViewFt.Count > 0;
-        }
-
-        // --- OPA: если boundary "рисует стенку вместо витража" — выкидываем сегменты boundary, которые близко и параллельно витражу ---
-        static List<Seg2> RemoveRoomSegsNearCurtainParallel(
-            List<Seg2> roomSegs,
-            List<Seg2> curtainSegs,
-            double tolFt)
-        {
-            if (roomSegs == null || roomSegs.Count == 0) return roomSegs;
-            if (curtainSegs == null || curtainSegs.Count == 0) return roomSegs;
-
-            var res = new List<Seg2>(roomSegs.Count);
-
-            foreach (var rs in roomSegs)
-            {
-                var mid = new XYZ(0.5 * (rs.A.X + rs.B.X), 0.5 * (rs.A.Y + rs.B.Y), 0);
-
-                var rsDir = new XYZ(rs.B.X - rs.A.X, rs.B.Y - rs.A.Y, 0);
-                if (!TryNormalize2D(rsDir, out var rsN))
-                {
-                    res.Add(rs);
-                    continue;
-                }
-
-                bool remove = false;
-
-                foreach (var cs in curtainSegs)
-                {
-                    // близость
-                    double d = DistPointToSegment2D(mid, cs.A, cs.B);
-                    if (d > tolFt) continue;
-
-                    // параллельность
-                    var csDir = new XYZ(cs.B.X - cs.A.X, cs.B.Y - cs.A.Y, 0);
-                    if (!TryNormalize2D(csDir, out var csN)) continue;
-
-                    double dot = Math.Abs(rsN.X * csN.X + rsN.Y * csN.Y);
-                    if (dot < 0.85) continue;
-
-                    remove = true;
-                    break;
-                }
-
-                if (!remove)
-                    res.Add(rs);
-            }
-
-            return res;
-        }
-
-        // --- OPA: мостики от "открытых концов" room boundary до ближайшего сегмента витража ---
-        static List<Seg2> BuildBridgesFromOpenEndsToCurtain(
-            List<Seg2> roomSegs,
-            List<Seg2> curtainSegs,
-            double maxBridgeFt)
-        {
-            var bridges = new List<Seg2>();
-            if (roomSegs == null || roomSegs.Count == 0) return bridges;
-            if (curtainSegs == null || curtainSegs.Count == 0) return bridges;
-
-            // считаем степени вершин (чтобы найти "разрывы" после удаления сегментов вдоль витража)
-            var deg = new Dictionary<string, int>();
-            var ptByKey = new Dictionary<string, XYZ>();
-
-            void AddDeg(XYZ p)
-            {
-                string k = KeyForPoint(p);
-                ptByKey[k] = p;
-                if (!deg.ContainsKey(k)) deg[k] = 1;
-                else deg[k] = deg[k] + 1;
-            }
-
-            foreach (var s in roomSegs)
-            {
-                AddDeg(s.A);
-                AddDeg(s.B);
-            }
-
-            var keys = new HashSet<string>(); // дедуп мостиков
-
-            foreach (var kv in deg)
-            {
-                if (kv.Value != 1) continue; // интересуют только "открытые" концы
-
-                var p = ptByKey[kv.Key];
-
-                XYZ qBest = null;
-                double dBest = double.PositiveInfinity;
-
-                foreach (var cs in curtainSegs)
-                {
-                    if (!ClosestPointOnSegment2D(p, cs.A, cs.B, out var q, out var t))
-                        continue;
-
-                    double dx = p.X - q.X, dy = p.Y - q.Y;
-                    double d = Math.Sqrt(dx * dx + dy * dy);
-
-                    if (d < dBest)
-                    {
-                        dBest = d;
-                        qBest = q;
-                    }
-                }
-
-                if (qBest == null) continue;
-                if (dBest > maxBridgeFt) continue;
-                if (dBest < sOpaBridgeEpsFt) continue; // почти ноль — не нужен
-
-                var A = SnapXY(p);
-                var B = SnapXY(qBest);
-                if (A.DistanceTo(B) < sMinSegFt) continue;
-
-                string kseg = KeyFor(A, B);
-                if (!keys.Add(kseg)) continue;
-
-                bridges.Add(new Seg2(A, B, false, 0));
-            }
-
-            return bridges;
-        }
-
-        // --- OPA: главный метод "room boundary (без витража) + полный витраж + мостики" -> минимальная грань с точкой ---
-        static List<List<XYZ>> TryBuildRoomLoopOPA_BoundaryPlusCurtain(
-            Room room,
-            List<Seg2> roomBoundaryNonCurtainSegs,
-            HashSet<int> curtainIdsHint,
-            Dictionary<int, List<Seg2>> curtainSegsViewFt,
-            double epsFt,
-            Transform T_model_to_view)
-        {
-            if (room == null || curtainSegsViewFt == null || curtainSegsViewFt.Count == 0)
-                return null;
-
-            var ids = new HashSet<int>();
-            if (curtainIdsHint != null) ids.UnionWith(curtainIdsHint);
-
-            // ГЛАВНОЕ: допуск должен быть большим (иначе при "недолёте" boundary до витража мы не найдём витраж)
-            double tolFt = sOpaCurtainReplaceMaxFt;
-            if (roomBoundaryNonCurtainSegs != null && roomBoundaryNonCurtainSegs.Count > 0)
-                ids.UnionWith(FindCurtainIdsTouchingRoom(roomBoundaryNonCurtainSegs, curtainSegsViewFt, tolFt));
-
-            if (ids.Count == 0)
-                return null; // витражей рядом нет — этот метод не нужен
-
-            // собираем ПОЛНЫЕ сегменты витражей (как требование)
-            var roomCurtainSegs = new List<Seg2>(2048);
-            foreach (int id in ids)
-            {
-                if (curtainSegsViewFt.TryGetValue(id, out var list) && list != null && list.Count > 0)
-                    roomCurtainSegs.AddRange(list);
-            }
-            if (roomCurtainSegs.Count == 0)
-                return null;
-
-            var roomSegs = roomBoundaryNonCurtainSegs ?? new List<Seg2>();
-            if (roomSegs.Count == 0)
-                return null;
-
-            // 1) выкидываем сегменты boundary, которые Revit "рисует вместо витража" (иначе будет неправильная минимальная грань)
-            var roomSegsCut = RemoveRoomSegsNearCurtainParallel(roomSegs, roomCurtainSegs, tolFt);
-
-            // 2) дополнительно чистим "ступеньки" (у тебя уже есть готовая функция)
-            roomSegsCut = RemoveCurtainStepsFromWalls(roomSegsCut, roomCurtainSegs);
-
-            // 3) мостики (чтобы замкнуть граф между концами boundary и линией витража)
-            var bridges = BuildBridgesFromOpenEndsToCurtain(roomSegsCut, roomCurtainSegs, tolFt);
-
-            // 4) финальный набор сегментов для графа
-            var all = new List<Seg2>(roomSegsCut.Count + roomCurtainSegs.Count + bridges.Count);
-            all.AddRange(roomSegsCut);
-            all.AddRange(roomCurtainSegs);
-            all.AddRange(bridges);
-
-            var planar = PlanarizeSegments2D(all, epsFt);
-            if (planar == null || planar.Count == 0) return null;
-
-            var faces = ExtractFacesFromPlanarSegs(planar, epsFt);
-            if (faces == null || faces.Count == 0) return null;
-
-            if (!TryGetRoomTestPointView(room, T_model_to_view, out var pTest))
-                return null;
-
-            var best = PickMinFaceByPoint(faces, pTest, epsFt);
-            if (best == null || best.Count < 3) return null;
-
-            return new List<List<XYZ>> { best };
-        }
 
         static List<List<XYZ>> BuildRoomLoopsPlanarGraphForOPA(
             Room room,
@@ -4420,8 +4095,8 @@ namespace Palmsi.RevitTools
                         var keysLocalCut = new HashSet<string>();
                         var segsViewFtCut = new List<Seg2>();
                         Dictionary<int, List<Seg2>> curtainSegsViewFt = null; // все сегменты витражей по CurtainRootId
-                        double opaEpsFt = Math.Max(sKeySnapFt, UnitUtils.ConvertToInternalUnits(0.5, UnitTypeId.Millimeters));
-
+                        List<List<XYZ>> viewFaces = null;   // faces планарного графа по сегментам вида
+                        double viewEpsFt = 0.0;
 
                         var doorReqs = new List<DoorBridgeInfo>(); // заявки на «зашивку» дверей (только host)
                         var allowedFilter = BuildAllowedFilterWithCutouts();
@@ -4836,7 +4511,18 @@ namespace Palmsi.RevitTools
                                 list.Add(s);
                             }
                         }
-                       
+                        if (sModeOPA && segsViewFtHost.Count > 0)
+                        {
+                            // eps для планаризации
+                            viewEpsFt = Math.Max(sKeySnapFt, UnitUtils.ConvertToInternalUnits(0.5, UnitTypeId.Millimeters));
+
+                            // ВАЖНО: строим граф по геометрии вида (включая витражи),
+                            // а не по Revit-контуру комнаты.
+                            var planarAll = PlanarizeSegments2D(segsViewFtHost, viewEpsFt);
+                            if (planarAll != null && planarAll.Count > 0)
+                                viewFaces = ExtractFacesFromPlanarSegs(planarAll, viewEpsFt);
+                        }
+
                         // ---------- ПОМЕЩЕНИЯ (Rooms) ДЛЯ РЕЖИМА ОПА ----------
                         if (sModeOPA)
                         {
@@ -4875,37 +4561,17 @@ namespace Palmsi.RevitTools
                                 }
                                 List<List<XYZ>> loopsForRoom = null;
 
-                                // boundary options — именно Room boundary от Revit
-                                var bopts = new SpatialElementBoundaryOptions();
-                                // если нужно именно по внутренней отделке:
-                                bopts.SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish;
-
-                                if (!TryGetRoomBoundaryDataView(room, doc, bopts, T_model_to_view,
-                                        out var roomLoopsRevitViewFt,
-                                        out var roomSegsNonCurtainViewFt,
-                                        out var curtainIdsHint))
+                                // 1) Основной путь: берём минимальную face из planar graph вида (включая все витражи)
+                                if (viewFaces != null && viewFaces.Count > 0 &&
+                                    TryGetRoomTestPointView(room, T_model_to_view, out var pTest))
                                 {
-                                    continue;
+                                    var best = PickMinFaceByPoint(viewFaces, pTest, viewEpsFt);
+                                    if (best != null)
+                                        loopsForRoom = new List<List<XYZ>> { best };
                                 }
 
-                                // 1) Если рядом есть витражи — строим граф только из (boundary без витража) + (полный витраж)
-                                loopsForRoom = TryBuildRoomLoopOPA_BoundaryPlusCurtain(
-                                    room,
-                                    roomSegsNonCurtainViewFt,
-                                    curtainIdsHint,
-                                    curtainSegsViewFt,
-                                    opaEpsFt,
-                                    T_model_to_view);
-
-                                // 2) Если витражей нет ИЛИ граф не смог собрать корректную грань — берём boundary как дал Revit
-                                if (loopsForRoom == null || loopsForRoom.Count == 0)
-                                {
-                                    if (roomLoopsRevitViewFt != null && roomLoopsRevitViewFt.Count > 0)
-                                        loopsForRoom = roomLoopsRevitViewFt;
-                                }
-
-                                // 3) Последний фоллбек (как было) — по solid
-                                if (loopsForRoom == null || loopsForRoom.Count == 0)
+                                // 2) Фоллбек (на случай, если граф не дал подходящей грани)
+                                if (loopsForRoom == null)
                                 {
                                     var roomLoopsView = BuildRoomLoopsBySolid(room, spatialCalc, T_model_to_view);
                                     if (roomLoopsView == null || roomLoopsView.Count == 0)
@@ -4913,6 +4579,15 @@ namespace Palmsi.RevitTools
 
                                     loopsForRoom = roomLoopsView;
                                 }
+
+                                var rp = new RoomPayload
+                                {
+                                    id = room.UniqueId ?? room.Id.IntegerValue.ToString(),
+                                    name = room.Name ?? "",
+                                    number = room.Number ?? "",
+                                    comment = BuildRoomCommentForJson(room),
+                                    loops = loopsForRoom
+                                };
 
                                 roomPayloads.Add(rp);
 
