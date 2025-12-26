@@ -1,0 +1,51 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\ivan.kopytin\\Desktop\\proj_in_work\\outer_contour\\Palmsi.RevitTools_trim\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{46184069-9EEB-420F-85A1-19427AE7BB0C}|Palmsi.RevitTools\\Palmsi.RevitTools.csproj|c:\\users\\ivan.kopytin\\desktop\\proj_in_work\\outer_contour\\palmsi.revittools_trim\\palmsi.revittools\\exportcurvescommand.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{46184069-9EEB-420F-85A1-19427AE7BB0C}|Palmsi.RevitTools\\Palmsi.RevitTools.csproj|solutionrelative:palmsi.revittools\\exportcurvescommand.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{00000000-0000-0000-0000-000000000000}|\u003CSolution\u003E|Palmsi.RevitTools||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 1,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Palmsi.RevitTools",
+              "DocumentMoniker": "C:\\Users\\ivan.kopytin\\Desktop\\proj_in_work\\outer_contour\\Palmsi.RevitTools_trim\\Palmsi.RevitTools\\Palmsi.RevitTools.csproj",
+              "RelativeDocumentMoniker": "Palmsi.RevitTools\\Palmsi.RevitTools.csproj",
+              "ToolTip": "C:\\Users\\ivan.kopytin\\Desktop\\proj_in_work\\outer_contour\\Palmsi.RevitTools_trim\\Palmsi.RevitTools\\Palmsi.RevitTools.csproj",
+              "RelativeToolTip": "Palmsi.RevitTools\\Palmsi.RevitTools.csproj",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
+              "WhenOpened": "2025-12-04T07:56:39.041Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "ExportCurvesCommand.cs",
+              "DocumentMoniker": "C:\\Users\\ivan.kopytin\\Desktop\\proj_in_work\\outer_contour\\Palmsi.RevitTools_trim\\Palmsi.RevitTools\\ExportCurvesCommand.cs",
+              "RelativeDocumentMoniker": "Palmsi.RevitTools\\ExportCurvesCommand.cs",
+              "ToolTip": "C:\\Users\\ivan.kopytin\\Desktop\\proj_in_work\\outer_contour\\Palmsi.RevitTools_trim\\Palmsi.RevitTools\\ExportCurvesCommand.cs",
+              "RelativeToolTip": "Palmsi.RevitTools\\ExportCurvesCommand.cs",
+              "ViewState": "AgIAABgTAAAAAAAAAAAYwDQTAAAgAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-06T10:09:11.691Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

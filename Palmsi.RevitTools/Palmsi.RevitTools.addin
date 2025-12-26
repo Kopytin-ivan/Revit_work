@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+	<AddIn Type="Command">
+		<Name>Export Curves to JSON (Local XY)</Name>
+		<Assembly>C:\RevitAddins\Palmsi\Palmsi.RevitTools.dll</Assembly>
+		<AddInId>8D83B1B3-8D02-4C8D-8D2B-3A9C7D6A1A11</AddInId>
+		<FullClassName>Palmsi.RevitTools.StartClassPlugin</FullClassName>
+		<VendorId>PLMS</VendorId>
+		<VendorDescription>Palmsi Lab</VendorDescription>
+		<Text>Export Curves (JSON)</Text>
+		<VisibilityMode>AlwaysVisible</VisibilityMode>
+	</AddIn>
+</RevitAddIns>
